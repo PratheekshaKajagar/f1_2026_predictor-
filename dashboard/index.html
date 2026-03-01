@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>F1 2026 Predictor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    /* =====================================================
+       DESIGN DIRECTION: Racing telemetry terminal.
+       Dark cockpit UI, neon timing-board accents,
+       monospaced data readouts like a real F1 timing tower.
+    ===================================================== */
+
+    :root {
+      --bg:        #0a0a0f;
+      --surface:   #111118;
+      --border:    #1e1e2e;
+      --red:       #e8002d;      /* F1 red */
+      --amber:     #ffc906;      /* timing board yellow */
+      --cyan:      #00d4ff;      /* telemetry blue */
+      --green:     #00e676;
+      --text:      #e8e8f0;
+      --muted:     #555570;
+      --font-display: 'Bebas Neue', sans-serif;
+      --font-mono:    'DM Mono', monospace;
+      --font-body:    'DM Sans', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─── SCANLINE OVERLAY ─── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ─── HEADER ─── */
+    header {
+      position: relative;
+      padding: 48px 48px 32px;
+      border-bottom: 1px solid var(--border);
+      overflow: hidden;
+    }
+    header::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--red), var(--amber), var(--cyan));
+    }
+    .header-inner {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .logo-block h1 {
+      font-family: var(--font-display);
+      font-size: clamp(3rem, 8vw, 6rem);
+      letter-spacing: 0.04em;
+      line-height: 0.9;
+      color: #fff;
+    }
+    .logo-block h1 span { color: var(--red); }
+    .logo-block p {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 8px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .status-block {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--green);
+    }
+    .live-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+    #last-updated {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+
+    /* ─── NAV TABS ─── */
+    nav {
+      display: flex;
+      gap: 0;
+      padding: 0 48px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .tab-btn {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: none;
+      border: none;
+      padding: 16px 24px;
+      cursor: pointer;
+      position: relative;
+      white-space: nowrap;
+      transition: color 0.2s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active {
+      color: var(--amber);
+    }
+    .tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--amber);
+    }
+
+    /* ─── MAIN CONTENT ─── */
+    main {
+      padding: 40px 48px;
+      max-width: 1400px;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ─── SECTION HEADER ─── */
+    .section-header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 2.2rem;
+      letter-spacing: 0.06em;
+      color: #fff;
+    }
+    .section-sub {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* ─── UPLOAD ZONE ─── */
+    .upload-banner {
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: 4px;
+      padding: 24px 32px;
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .upload-banner p {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+    .upload-banner p strong { color: var(--amber); }
+    .file-inputs { display: flex; gap: 12px; flex-wrap: wrap; }
+    .file-label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .file-label span {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    input[type="file"] {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 6px 10px;
+      cursor: pointer;
+      width: 220px;
+    }
+    input[type="file"]::file-selector-button {
+      background: var(--red);
+      color: #fff;
+      border: none;
+      padding: 4px 10px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+
+    /* ─── DATA TABLE ─── */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }
+    thead {
+      background: var(--surface);
+    }
+    thead th {
+      padding: 12px 20px;
+      text-align: left;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-size: 0.62rem;
+      color: var(--muted);
+      font-weight: 500;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,0.02); }
+    td {
+      padding: 14px 20px;
+      color: var(--text);
+      vertical-align: middle;
+    }
+
+    /* Position badge */
+    .pos {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px; height: 28px;
+      border-radius: 2px;
+      font-weight: 500;
+      font-size: 0.85rem;
+    }
+    .pos-1 { background: #c9a227; color: #000; }
+    .pos-2 { background: #8d9399; color: #000; }
+    .pos-3 { background: #9a5a2e; color: #fff; }
+    .pos-n { background: var(--border); color: var(--muted); }
+
+    /* Team colour strip */
+    .team-cell { display: flex; align-items: center; gap: 10px; }
+    .team-dot {
+      width: 3px; height: 22px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    /* Probability bar */
+    .prob-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 160px;
+    }
+    .prob-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .prob-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--red), var(--amber));
+      border-radius: 3px;
+      transition: width 0.6s cubic-bezier(.4,0,.2,1);
+    }
+    .prob-val {
+      font-size: 0.75rem;
+      color: var(--amber);
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* Prediction tag */
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 2px;
+      font-size: 0.62rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .tag-yes { background: rgba(0,230,118,0.15); color: var(--green); border: 1px solid rgba(0,230,118,0.3); }
+    .tag-no  { background: rgba(85,85,112,0.2); color: var(--muted); border: 1px solid var(--border); }
+
+    /* Lap time highlight */
+    .laptime { color: var(--cyan); letter-spacing: 0.04em; }
+    .laptime-fastest { color: var(--green); }
+
+    /* Points */
+    .points-val { color: var(--amber); font-weight: 500; }
+
+    /* Championship bar */
+    .pts-bar-wrap { display: flex; align-items: center; gap: 12px; min-width: 200px; }
+    .pts-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .pts-bar-fill { height: 100%; background: linear-gradient(90deg, var(--cyan), var(--green)); border-radius: 3px; transition: width 0.8s cubic-bezier(.4,0,.2,1); }
+
+    /* ─── EMPTY STATE ─── */
+    .empty-state {
+      padding: 60px 20px;
+      text-align: center;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .empty-state .icon {
+      font-size: 2.5rem;
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+    .empty-state h3 {
+      font-family: var(--font-display);
+      font-size: 1.4rem;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .empty-state p {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+    .empty-state code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 2px 8px;
+      border-radius: 2px;
+      color: var(--amber);
+    }
+
+    /* ─── STAT CARDS (overview) ─── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 20px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+    }
+    .stat-card.red::before   { background: var(--red); }
+    .stat-card.amber::before { background: var(--amber); }
+    .stat-card.cyan::before  { background: var(--cyan); }
+    .stat-card.green::before { background: var(--green); }
+    .stat-card .label {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .stat-card .value {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      letter-spacing: 0.04em;
+      color: #fff;
+    }
+    .stat-card .sub {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 700px) {
+      header, nav, main { padding-left: 20px; padding-right: 20px; }
+      header { padding-top: 28px; }
+      .section-title { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<header>
+  <div class="header-inner">
+    <div class="logo-block">
+      <h1>F1 <span>2026</span><br>PREDICTOR</h1>
+      <p>ML-Powered Race Intelligence · Local Dashboard</p>
+    </div>
+    <div class="status-block">
+      <div class="live-badge">
+        <div class="live-dot"></div>
+        Data Loaded
+      </div>
+      <div id="last-updated">No data loaded yet</div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ NAV TABS ═══ -->
+<nav>
+  <button class="tab-btn active" data-tab="overview">Overview</button>
+  <button class="tab-btn" data-tab="podium">Podium Predictions</button>
+  <button class="tab-btn" data-tab="laptimes">Lap Times</button>
+  <button class="tab-btn" data-tab="championship">Championship</button>
+</nav>
+
+<!-- ═══ MAIN ═══ -->
+<main>
+
+  <!-- ─── UPLOAD BANNER (shown on all tabs) ─── -->
+  <div class="upload-banner">
+    <div>
+      <p><strong>LOAD YOUR PREDICTION CSVs</strong></p>
+      <p>Run <code style="color:var(--amber);font-family:var(--font-mono)">python predict.py</code> first, then upload the 3 files from your <code style="color:var(--amber);font-family:var(--font-mono)">predictions/</code> folder below.</p>
+    </div>
+    <div class="file-inputs">
+      <label class="file-label">
+        <span>Podium CSV</span>
+        <input type="file" accept=".csv" id="file-podium">
+      </label>
+      <label class="file-label">
+        <span>Lap Times CSV</span>
+        <input type="file" accept=".csv" id="file-laptimes">
+      </label>
+      <label class="file-label">
+        <span>Championship CSV</span>
+        <input type="file" accept=".csv" id="file-championship">
+      </label>
+    </div>
+  </div>
+
+  <!-- ─── TAB: OVERVIEW ─── -->
+  <div class="tab-panel active" id="tab-overview">
+    <div class="section-header">
+      <span class="section-title">SEASON OVERVIEW</span>
+      <span class="section-sub">Summary stats across all predictions</span>
+    </div>
+    <div class="stat-grid" id="stat-cards">
+      <div class="stat-card red">
+        <div class="label">Predicted Race Winner</div>
+        <div class="value" id="stat-winner">—</div>
+        <div class="sub" id="stat-winner-team">Load prediction CSVs</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="label">Fastest Predicted Lap</div>
+        <div class="value" id="stat-fastest">—</div>
+        <div class="sub" id="stat-fastest-driver">Load lap times CSV</div>
+      </div>
+      <div class="stat-card cyan">
+        <div class="label">Championship Leader</div>
+        <div class="value" id="stat-leader">—</div>
+        <div class="sub" id="stat-leader-pts">Load championship CSV</div>
+      </div>
+      <div class="stat-card green">
+        <div class="label">Podium Confidence</div>
+        <div class="value" id="stat-confidence">—</div>
+        <div class="sub">Top driver podium probability</div>
+      </div>
+    </div>
+    <div class="empty-state" id="overview-empty">
+      <div class="icon">📡</div>
+      <h3>AWAITING TELEMETRY</h3>
+      <p>Upload your 3 CSV files above to populate the dashboard.<br>
+         Generate them with <code>python predict.py</code></p>
+    </div>
+    <div id="overview-summary" style="display:none;">
+      <div class="section-header" style="margin-top:32px;">
+        <span class="section-title">PREDICTED PODIUM</span>
+        <span class="section-sub">Top 3 drivers by probability</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>P</th>
+              <th>Driver</th>
+              <th>Team</th>
+              <th>Podium Probability</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody id="overview-podium-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── TAB: PODIUM ─── -->
+  <div class="tab-panel" id="tab-podium">
+    <div class="section-header">
+      <span class="section-title">PODIUM PREDICTIONS</span>
+      <span class="section-sub">Classifier output · All drivers ranked</span>
+    </div>
+    <div class="table-wrap" id="podium-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Driver</th>
+            <th>Team</th>
+            <th>Podium Probability</th>
+            <th>Prediction</th>
+          </tr>
+        </thead>
+        <tbody id="podium-body"></tbody>
+      </table>
+    </div>
+    <div class="empty-state" id="podium-empty" style="display:none;">
+      <div class="icon">🏆</div>
+      <h3>NO PODIUM DATA</h3>
+      <p>Upload <code>podium_prediction.csv</code> above</p>
+    </div>
+  </div>
+
+  <!-- ─── TAB: LAP TIMES ─── -->
+  <div class="tab-panel" id="tab-laptimes">
+    <div class="section-header">
+      <span class="section-title">LAP TIME PREDICTIONS</span>
+      <span class="section-sub">Regressor output · Predicted qualifying order</span>
+    </div>
+    <div class="table-wrap" id="laptimes-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Grid</th>
+            <th>Driver</th>
+            <th>Team</th>
+            <th>Predicted Lap Time</th>
+            <th>Gap to Leader</th>
+          </tr>
+        </thead>
+        <tbody id="laptimes-body"></tbody>
+      </table>
+    </div>
+    <div class="empty-state" id="laptimes-empty" style="display:none;">
+      <div class="icon">⏱</div>
+      <h3>NO LAP TIME DATA</h3>
+      <p>Upload <code>laptime_prediction.csv</code> above</p>
+    </div>
+  </div>
+
+  <!-- ─── TAB: CHAMPIONSHIP ─── -->
+  <div class="tab-panel" id="tab-championship">
+    <div class="section-header">
+      <span class="section-title">CHAMPIONSHIP PROJECTION</span>
+      <span class="section-sub">Projected season points · 24 race simulation</span>
+    </div>
+    <div class="table-wrap" id="championship-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Pos</th>
+            <th>Driver</th>
+            <th>Team</th>
+            <th>Pts/Race</th>
+            <th>Projected Season Points</th>
+          </tr>
+        </thead>
+        <tbody id="championship-body"></tbody>
+      </table>
+    </div>
+    <div class="empty-state" id="championship-empty" style="display:none;">
+      <div class="icon">🏅</div>
+      <h3>NO CHAMPIONSHIP DATA</h3>
+      <p>Upload <code>championship_projection.csv</code> above</p>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// =====================================================
+// HOW THIS WORKS (for beginners):
+//   1. You upload a CSV file using the file inputs above.
+//   2. JavaScript reads the file contents (FileReader API).
+//   3. We parse the CSV text into a JavaScript array of objects.
+//   4. We build HTML table rows from that data and inject them.
+//   5. No server needed — everything runs in the browser locally.
+// =====================================================
+
+// ─── TEAM COLOURS (matches F1 2026 liveries) ───
+const TEAM_COLORS = {
+  'Mercedes':     '#00D2BE',
+  'Ferrari':      '#E8002D',
+  'McLaren':      '#FF8000',
+  'Red Bull':     '#3671C6',
+  'Aston Martin': '#358C75',
+  'Alpine':       '#FF87BC',
+  'Williams':     '#64C4FF',
+  'AlphaTauri':   '#6692FF',
+  'Haas':         '#B6BABD',
+  'Audi':         '#999966',
+  'Cadillac':     '#FFFFFF',
+};
+function teamColor(name) {
+  for (const [key, val] of Object.entries(TEAM_COLORS)) {
+    if (name && name.includes(key)) return val;
+  }
+  return '#555570';
+}
+
+// ─── CSV PARSER ───
+// Turns a raw CSV string into an array of objects.
+// Each row becomes { column_name: value, ... }
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  // First line = headers (column names)
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  return lines.slice(1).map(line => {
+    const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = vals[i] || '');
+    return obj;
+  });
+}
+
+// ─── FILE READER HELPER ───
+function readCSV(inputEl, callback) {
+  inputEl.addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => callback(parseCSV(e.target.result));
+    reader.readAsText(file);
+    document.getElementById('last-updated').textContent =
+      'Last updated: ' + new Date().toLocaleTimeString();
+  });
+}
+
+// ─── POSITION BADGE ───
+function posBadge(n) {
+  const cls = n == 1 ? 'pos-1' : n == 2 ? 'pos-2' : n == 3 ? 'pos-3' : 'pos-n';
+  return `<span class="pos ${cls}">${n}</span>`;
+}
+
+// ─── TEAM CELL ───
+function teamCell(name) {
+  return `<div class="team-cell">
+    <div class="team-dot" style="background:${teamColor(name)}"></div>
+    <span>${name || '—'}</span>
+  </div>`;
+}
+
+// =====================================================
+// RENDER: PODIUM TABLE
+// =====================================================
+let podiumData = null;
+
+function renderPodium(data) {
+  podiumData = data;
+  const tbody = document.getElementById('podium-body');
+  const empty = document.getElementById('podium-empty');
+  const wrap  = document.getElementById('podium-table-wrap');
+
+  if (!data || data.length === 0) {
+    wrap.style.display = 'none'; empty.style.display = 'block'; return;
+  }
+  wrap.style.display = 'block'; empty.style.display = 'none';
+
+  tbody.innerHTML = data.map((row, i) => {
+    const rank = i + 1;
+    // Probability is stored as a decimal (0.85) — multiply by 100 for percentage
+    const prob = parseFloat(row['Podium_Probability'] || 0);
+    const probPct = (prob * 100).toFixed(1);
+    const isPodium = row['Podium_Prediction'] === '1';
+
+    return `<tr>
+      <td>${posBadge(rank)}</td>
+      <td><strong>${row['Abbreviation'] || '—'}</strong></td>
+      <td>${teamCell(row['TeamName'])}</td>
+      <td>
+        <div class="prob-bar-wrap">
+          <div class="prob-bar">
+            <div class="prob-bar-fill" style="width:${probPct}%"></div>
+          </div>
+          <span class="prob-val">${probPct}%</span>
+        </div>
+      </td>
+      <td>
+        <span class="tag ${isPodium ? 'tag-yes' : 'tag-no'}">
+          ${isPodium ? '✓ Podium' : 'No Podium'}
+        </span>
+      </td>
+    </tr>`;
+  }).join('');
+
+  updateOverview();
+}
+
+// =====================================================
+// RENDER: LAP TIMES TABLE
+// =====================================================
+let lapData = null;
+
+function renderLapTimes(data) {
+  lapData = data;
+  const tbody = document.getElementById('laptimes-body');
+  const empty = document.getElementById('laptimes-empty');
+  const wrap  = document.getElementById('laptimes-table-wrap');
+
+  if (!data || data.length === 0) {
+    wrap.style.display = 'none'; empty.style.display = 'block'; return;
+  }
+  wrap.style.display = 'block'; empty.style.display = 'none';
+
+  // Sort by predicted lap time ascending (fastest first)
+  const sorted = [...data].sort((a, b) =>
+    parseFloat(a['Predicted_LapTime_s'] || 9999) - parseFloat(b['Predicted_LapTime_s'] || 9999)
+  );
+  const fastestTime = parseFloat(sorted[0]['Predicted_LapTime_s'] || 0);
+
+  tbody.innerHTML = sorted.map((row, i) => {
+    const grid = i + 1;
+    const timeS = parseFloat(row['Predicted_LapTime_s'] || 0);
+    const gap   = timeS - fastestTime;
+    const timeStr = row['Predicted_LapTime'] || formatTime(timeS);
+    const isFirst = i === 0;
+
+    return `<tr>
+      <td>${posBadge(grid)}</td>
+      <td><strong>${row['Abbreviation'] || '—'}</strong></td>
+      <td>${teamCell(row['TeamName'])}</td>
+      <td><span class="${isFirst ? 'laptime-fastest' : 'laptime'}">${timeStr}</span></td>
+      <td style="color:var(--muted); font-family:var(--font-mono); font-size:0.75rem;">
+        ${isFirst ? '<span style="color:var(--green)">POLE</span>' : '+' + gap.toFixed(3) + 's'}
+      </td>
+    </tr>`;
+  }).join('');
+
+  updateOverview();
+}
+
+function formatTime(seconds) {
+  if (!seconds) return '—';
+  const m = Math.floor(seconds / 60);
+  const s = (seconds % 60).toFixed(3).padStart(6, '0');
+  return `${m}:${s}`;
+}
+
+// =====================================================
+// RENDER: CHAMPIONSHIP TABLE
+// =====================================================
+let champData = null;
+
+function renderChampionship(data) {
+  champData = data;
+  const tbody = document.getElementById('championship-body');
+  const empty = document.getElementById('championship-empty');
+  const wrap  = document.getElementById('championship-table-wrap');
+
+  if (!data || data.length === 0) {
+    wrap.style.display = 'none'; empty.style.display = 'block'; return;
+  }
+  wrap.style.display = 'block'; empty.style.display = 'none';
+
+  const sorted = [...data].sort((a, b) =>
+    parseFloat(b['Projected_Season_Points'] || 0) - parseFloat(a['Projected_Season_Points'] || 0)
+  );
+  const maxPts = parseFloat(sorted[0]['Projected_Season_Points'] || 1);
+
+  tbody.innerHTML = sorted.map((row, i) => {
+    const pts    = parseFloat(row['Projected_Season_Points'] || 0);
+    const perRace = parseFloat(row['Points_Per_Race'] || 0);
+    const barPct = ((pts / maxPts) * 100).toFixed(1);
+
+    return `<tr>
+      <td>${posBadge(i + 1)}</td>
+      <td><strong>${row['Abbreviation'] || '—'}</strong></td>
+      <td>${teamCell(row['TeamName'])}</td>
+      <td style="color:var(--muted); font-family:var(--font-mono);">${perRace.toFixed(1)}</td>
+      <td>
+        <div class="pts-bar-wrap">
+          <div class="pts-bar">
+            <div class="pts-bar-fill" style="width:${barPct}%"></div>
+          </div>
+          <span class="points-val" style="min-width:48px; text-align:right; font-family:var(--font-mono);">
+            ${pts.toFixed(0)} pts
+          </span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  updateOverview();
+}
+
+// =====================================================
+// OVERVIEW: Update stat cards when data loads
+// =====================================================
+function updateOverview() {
+  const hasAny = podiumData || lapData || champData;
+  document.getElementById('overview-empty').style.display = hasAny ? 'none' : 'block';
+  document.getElementById('overview-summary').style.display = (podiumData) ? 'block' : 'none';
+
+  if (podiumData && podiumData.length > 0) {
+    const top = podiumData[0];
+    const prob = (parseFloat(top['Podium_Probability'] || 0) * 100).toFixed(0);
+    document.getElementById('stat-winner').textContent = top['Abbreviation'] || '—';
+    document.getElementById('stat-winner-team').textContent = top['TeamName'] || '';
+    document.getElementById('stat-confidence').textContent = prob + '%';
+
+    // Populate overview podium table (top 5)
+    const tbody = document.getElementById('overview-podium-body');
+    tbody.innerHTML = podiumData.slice(0, 5).map((row, i) => {
+      const prob = (parseFloat(row['Podium_Probability'] || 0) * 100).toFixed(1);
+      const isPodium = row['Podium_Prediction'] === '1';
+      return `<tr>
+        <td>${posBadge(i+1)}</td>
+        <td><strong>${row['Abbreviation'] || '—'}</strong></td>
+        <td>${teamCell(row['TeamName'])}</td>
+        <td>
+          <div class="prob-bar-wrap">
+            <div class="prob-bar"><div class="prob-bar-fill" style="width:${prob}%"></div></div>
+            <span class="prob-val">${prob}%</span>
+          </div>
+        </td>
+        <td><span class="tag ${isPodium ? 'tag-yes' : 'tag-no'}">${isPodium ? '✓ Podium' : 'No Podium'}</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  if (lapData && lapData.length > 0) {
+    const sorted = [...lapData].sort((a, b) =>
+      parseFloat(a['Predicted_LapTime_s'] || 9999) - parseFloat(b['Predicted_LapTime_s'] || 9999)
+    );
+    const top = sorted[0];
+    document.getElementById('stat-fastest').textContent = top['Predicted_LapTime'] || formatTime(parseFloat(top['Predicted_LapTime_s']));
+    document.getElementById('stat-fastest-driver').textContent = (top['Abbreviation'] || '') + ' · ' + (top['TeamName'] || '');
+  }
+
+  if (champData && champData.length > 0) {
+    const sorted = [...champData].sort((a, b) =>
+      parseFloat(b['Projected_Season_Points'] || 0) - parseFloat(a['Projected_Season_Points'] || 0)
+    );
+    const top = sorted[0];
+    document.getElementById('stat-leader').textContent = top['Abbreviation'] || '—';
+    document.getElementById('stat-leader-pts').textContent =
+      parseFloat(top['Projected_Season_Points'] || 0).toFixed(0) + ' projected pts';
+  }
+}
+
+// ─── WIRE UP FILE INPUTS ───
+readCSV(document.getElementById('file-podium'),       renderPodium);
+readCSV(document.getElementById('file-laptimes'),     renderLapTimes);
+readCSV(document.getElementById('file-championship'), renderChampionship);
+
+// ─── TAB SWITCHING ───
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ─── INITIAL STATE ───
+// Show empty states on tables that have no data yet
+['podium', 'laptimes', 'championship'].forEach(id => {
+  document.getElementById(`${id}-table-wrap`).style.display = 'none';
+  document.getElementById(`${id}-empty`).style.display = 'block';
+});
+</script>
+</body>
+</html>

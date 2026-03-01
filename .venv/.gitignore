@@ -1,0 +1,36 @@
+# =====================================================
+# .gitignore — F1 2026 Predictor
+# Files listed here are NOT uploaded to GitHub.
+# =====================================================
+
+# Virtual environment (massive, auto-recreatable — never commit this)
+venv/
+.venv/
+env/
+
+# F1 cache (can be gigabytes of downloaded telemetry)
+f1_cache/
+
+# Trained model files (too large for git, regenerate with train_model.py)
+models/
+*.pkl
+
+# Prediction outputs (generated files, not source code)
+predictions/
+
+# Python bytecode (auto-generated, not needed)
+__pycache__/
+*.pyc
+*.pyo
+
+# OS junk files
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.vscode/
+.idea/
+*.code-workspace
+
+# Environment variables (NEVER commit secrets/API keys)
+.env

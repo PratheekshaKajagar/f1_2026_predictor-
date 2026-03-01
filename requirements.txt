@@ -1,0 +1,30 @@
+# =====================================================
+# requirements.txt — F1 2026 Predictor
+# =====================================================
+# HOW TO INSTALL:
+#   Make sure your venv is active first:
+#     Windows:  venv\Scripts\activate
+#     Mac/Linux: source venv/bin/activate
+#
+#   Then run:
+#     pip install -r requirements.txt
+# =====================================================
+
+# FastF1: Official F1 telemetry and session data API
+fastf1>=3.3.0
+
+# Pandas: The backbone of data handling (tables/DataFrames)
+pandas>=2.0.0
+
+# NumPy: Fast numerical operations (used under the hood by everything)
+numpy>=1.26.0
+
+# Scikit-learn: Our ML library — RandomForest, scalers, metrics
+scikit-learn>=1.4.0
+
+# Joblib: Saves and loads trained models to disk (.pkl files)
+joblib>=1.3.0
+
+# Matplotlib + Seaborn: Plotting (optional but great for visualising results)
+matplotlib>=3.8.0
+seaborn>=0.13.0
